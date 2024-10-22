@@ -1,48 +1,69 @@
-import pandas as pd
+import requests
 from playwright.sync_api import sync_playwright
+import pandas as pd
+from bs4 import BeautifulSoup
+import os
 
-# Carregar a planilha com CPFs e Datas de Nascimento
-file_path = 'nome_caged.csv'
-df = pd.read_csv(file_path)
 
-def processar_cpf_data(cpf, data_nascimento):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False) 
-        page = browser.new_page()
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=False)
+    page = browser.new_page()
 
-        url = "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp"
-        page.goto(url)
+    url = "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp"
+    page.goto(url)
 
-        page.wait_for_load_state("networkidle")
+    # Espera a página carregar completamente
+    page.wait_for_load_state("networkidle")
 
-        page.fill('input[name="txtCPF"]', cpf)
-        page.fill('input[name="txtDataNascimento"]', data_nascimento)
+    cpf = '06474251735'  # Substitua pelo CPF desejado
+    data_nascimento = '13022003'  # Substitua pela data de nascimento desejada
+    page.fill('input[name="txtCPF"]', cpf)
+    page.fill('input[name="txtDataNascimento"]', data_nascimento)
 
-        hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
+    hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
 
-        checkbox = hcaptcha_frame.locator('div[role="checkbox"]')
-        checkbox.click()
+    checkbox = hcaptcha_frame.locator('div[role="checkbox"]')
+    checkbox.click()
 
-        print("resolva o captcha manualmente se necessário.")
-        page.wait_for_timeout(10000)
+    print("Por favor, resolva o captcha manualmente se for solicitado.")
+    page.wait_for_timeout(10000) 
 
-        captcha_token = page.evaluate('document.querySelector("[name=h-captcha-response]").value')
-        print(f'Token Capturado: {captcha_token}')
+    # Capturar o token hCaptcha gerado após a resolução
+    captcha_token = page.evaluate('document.querySelector("[name=h-captcha-response]").value')
+    print(f'Token Capturado: {captcha_token}')
 
-        page.evaluate(f'document.querySelector("[name=h-captcha-response]").value = "{captcha_token}";')
+    # Preencher o campo oculto com o token do captcha
+    page.evaluate(f'document.querySelector("[name=h-captcha-response]").value = "{captcha_token}";')
 
-        page.click('input[type="submit"]')
+    page.click('input[type="submit"]')
 
-        print(f"Formulário enviado para o CPF {cpf}. Verifique os resultados no navegador.")
-        page.wait_for_timeout(30000)  # Aguarde 30 segundos para observar o resultado
+    print("Formulário enviado. Verifique os resultados no navegador.")
+    page.wait_for_load_state("networkidle")
 
-        # Fechar o navegador manualmente ou automaticamente
-        # browser.close()
+    # Capturar o conteúdo da página de resposta e usar BeautifulSoup para processar
+    response_html = page.content()
+    soup = BeautifulSoup(response_html, 'html.parser')
 
-# Iterar sobre cada linha do DataFrame e processar
-for index, row in df.iterrows():
-    cpf = row['CPF']  
-    data_nascimento = row['DT_NASCIMENTO'].replace("-", "")
-    
-    print(f"Processando CPF: {cpf} e Data de Nascimento: {data_nascimento}")
-    processar_cpf_data(cpf, data_nascimento)
+    download_dir = 'consultas'
+    os.makedirs(download_dir, exist_ok=True)
+
+    file_name = f"{cpf}.txt"
+    file_path = os.path.join(download_dir, file_name)
+
+    # Encontrar e salvar os conteúdos dentro de <div class="clConteudoEsquerda"> no arquivo txt
+    conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
+
+    with open(file_path, "w", encoding="utf-8") as file:
+        for div in conteudos_esquerda:
+            bold_tags = div.find_all('b')
+            for bold in bold_tags:
+                file.write(bold.get_text(strip=True) + '\n')
+
+    print(f"Conteúdo salvo em {file_path}")
+
+    # Manter o navegador aberto para verificar os resultados
+    page.wait_for_timeout(10000)
+
+    # Fechar o navegador manualmente ou automaticamente
+    # browser.close()
+
