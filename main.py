@@ -46,12 +46,11 @@ def realizar_consulta(cpf, data_nascimento):
         # Capturar o conteúdo da página de resposta e usar BeautifulSoup para processar
         response_html = page.content()
         soup = BeautifulSoup(response_html, 'html.parser')
+        conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
 
         file_name = f"{cpf}.txt"
         file_path = os.path.join(download_dir, file_name)
-
-        conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
-
+        
         with open(file_path, "w", encoding="utf-8") as file:
             for div in conteudos_esquerda:
                 bold_tags = div.find_all('b')
