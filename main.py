@@ -1,69 +1,72 @@
-import requests
+import os
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 import pandas as pd
-from bs4 import BeautifulSoup
-import os
 
+df = pd.read_csv('nome_caged.csv')
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    page = browser.new_page()
+# Função para converter a data de nascimento para o formato DDMMYYYY
+def formatar_data_nascimento(data_iso):
+    return pd.to_datetime(data_iso).strftime('%d%m%Y')
 
-    url = "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp"
-    page.goto(url)
+df['DATA_FORMATADA'] = df['DT_NASCIMENTO'].apply(formatar_data_nascimento)
 
-    # Espera a página carregar completamente
-    page.wait_for_load_state("networkidle")
+# diretorio
+download_dir = 'consultas'
+os.makedirs(download_dir, exist_ok=True)
 
-    cpf = '06474251735'  # Substitua pelo CPF desejado
-    data_nascimento = '13022003'  # Substitua pela data de nascimento desejada
-    page.fill('input[name="txtCPF"]', cpf)
-    page.fill('input[name="txtDataNascimento"]', data_nascimento)
+def realizar_consulta(cpf, data_nascimento):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        page = browser.new_page()
 
-    hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
+        url = "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp"
+        page.goto(url)
 
-    checkbox = hcaptcha_frame.locator('div[role="checkbox"]')
-    checkbox.click()
+        page.wait_for_selector('input[name="txtCPF"]', timeout=90000)
 
-    print("Por favor, resolva o captcha manualmente se for solicitado.")
-    page.wait_for_timeout(10000) 
+        page.fill('input[name="txtCPF"]', str(cpf))
+        page.fill('input[name="txtDataNascimento"]', str(data_nascimento))
 
-    # Capturar o token hCaptcha gerado após a resolução
-    captcha_token = page.evaluate('document.querySelector("[name=h-captcha-response]").value')
-    print(f'Token Capturado: {captcha_token}')
+        # Localizar o checkbox do captcha
+        hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
+        checkbox = hcaptcha_frame.locator('div[role="checkbox"]')
+        checkbox.click()
+        page.wait_for_timeout(600)
 
-    # Preencher o campo oculto com o token do captcha
-    page.evaluate(f'document.querySelector("[name=h-captcha-response]").value = "{captcha_token}";')
+        # Capturar o token hCaptcha gerado após a resolução
+        # captcha_token = page.evaluate('document.querySelector("[name=h-captcha-response]").value')
 
-    page.click('input[type="submit"]')
+        # Submeter o formulário e esperar a navegação
+        with page.expect_navigation(wait_until="networkidle"):
+            page.click('input[name="Enviar"]')
 
-    print("Formulário enviado. Verifique os resultados no navegador.")
-    page.wait_for_load_state("networkidle")
+        # Capturar o conteúdo da página de resposta e usar BeautifulSoup para processar
+        response_html = page.content()
+        soup = BeautifulSoup(response_html, 'html.parser')
 
-    # Capturar o conteúdo da página de resposta e usar BeautifulSoup para processar
-    response_html = page.content()
-    soup = BeautifulSoup(response_html, 'html.parser')
+        file_name = f"{cpf}.txt"
+        file_path = os.path.join(download_dir, file_name)
 
-    download_dir = 'consultas'
-    os.makedirs(download_dir, exist_ok=True)
+        conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
 
-    file_name = f"{cpf}.txt"
-    file_path = os.path.join(download_dir, file_name)
+        with open(file_path, "w", encoding="utf-8") as file:
+            for div in conteudos_esquerda:
+                bold_tags = div.find_all('b')
+                for bold in bold_tags:
+                    file.write(bold.get_text(strip=True) + '\n')
 
-    # Encontrar e salvar os conteúdos dentro de <div class="clConteudoEsquerda"> no arquivo txt
-    conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
+        print(f"Consulta para CPF {cpf} concluída. Conteúdo salvo em {file_path}")
 
-    with open(file_path, "w", encoding="utf-8") as file:
-        for div in conteudos_esquerda:
-            bold_tags = div.find_all('b')
-            for bold in bold_tags:
-                file.write(bold.get_text(strip=True) + '\n')
+        browser.close()
 
-    print(f"Conteúdo salvo em {file_path}")
+# Iterar sobre o DataFrame e realizar consultas para cada CPF
+for index, row in df.iterrows():
+    cpf = row['CPF']
+    data_nascimento = row['DATA_FORMATADA']
 
-    # Manter o navegador aberto para verificar os resultados
-    page.wait_for_timeout(10000)
+    # Chamar a função para realizar a consulta
+    realizar_consulta(cpf, data_nascimento)
 
-    # Fechar o navegador manualmente ou automaticamente
-    # browser.close()
-
+print(f"Total de consultas realizadas: {len(df)}")
+    
