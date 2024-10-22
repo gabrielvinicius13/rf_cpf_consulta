@@ -1,114 +1,48 @@
-import requests
-from playwright.sync_api import sync_playwright
 import pandas as pd
-from bs4 import BeautifulSoup
-import os
-# Carregar o arquivo CSV
-df = pd.read_csv('nome_caged.csv')
+from playwright.sync_api import sync_playwright
 
-# Função para converter a data de nascimento para o formato DDMMYYYY
-def formatar_data_nascimento(data_iso):
-    return pd.to_datetime(data_iso).strftime('%d%m%Y')
+# Carregar a planilha com CPFs e Datas de Nascimento
+file_path = 'nome_caged.csv'
+df = pd.read_csv(file_path)
 
-# Aplicar a formatação na coluna de datas de nascimento
-df['DATA_FORMATADA'] = df['DT_NASCIMENTO'].apply(formatar_data_nascimento)
+def processar_cpf_data(cpf, data_nascimento):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False) 
+        page = browser.new_page()
 
-def capturar_cookies_e_token():
-    while True:  # Loop para tentar novamente em caso de erro
-        try:
-            # Iniciar o Playwright para resolver o captcha e capturar cookies e headers
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=False) 
-                page = browser.new_page()
+        url = "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp"
+        page.goto(url)
 
-                page.goto("https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp")
-                page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("networkidle")
 
-                hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
-                checkbox = hcaptcha_frame.locator('div[role="checkbox"]')
-                checkbox.click() 
+        page.fill('input[name="txtCPF"]', cpf)
+        page.fill('input[name="txtDataNascimento"]', data_nascimento)
 
-                print("Por favor, resolva o captcha manualmente se necessário.")
-                page.wait_for_timeout(20000)  # Tempo para resolver o captcha manualmente
+        hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
 
-                # Captura o token do captcha
-                captcha_token = page.evaluate('document.querySelector("[name=h-captcha-response]").value')
-                
-                if not captcha_token:
-                    raise ValueError("Token do hCaptcha não encontrado.")
-                
-                # Capturar os cookies da sessão
-                cookies = page.context.cookies()
+        checkbox = hcaptcha_frame.locator('div[role="checkbox"]')
+        checkbox.click()
 
-                # Capturar os headers necessários
-                headers = page.evaluate('''() => {
-                    return {
-                        'User-Agent': navigator.userAgent,
-                        'Accept-Language': navigator.language,
-                        'Referer': document.referrer
-                    }
-                }''')
+        print("resolva o captcha manualmente se necessário.")
+        page.wait_for_timeout(10000)
 
-                browser.close()
-                return cookies, headers, captcha_token
-        except Exception as e:
-            print(f"Erro ao capturar o token ou cookies: {e}. Tentando novamente...")
+        captcha_token = page.evaluate('document.querySelector("[name=h-captcha-response]").value')
+        print(f'Token Capturado: {captcha_token}')
 
-def enviar_formulario_com_post(cookies, headers, captcha_token, cpf, data_nascimento):
-    if not cookies or not headers or not captcha_token:
-        print(f"Consulta para o CPF {cpf} não realizada. Falha na captura do token ou cookies.")
-        return
+        page.evaluate(f'document.querySelector("[name=h-captcha-response]").value = "{captcha_token}";')
 
-    url = "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublicaExibir.asp"
+        page.click('input[type="submit"]')
 
-    # Organiza os cookies para requests
-    cookies_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+        print(f"Formulário enviado para o CPF {cpf}. Verifique os resultados no navegador.")
+        page.wait_for_timeout(30000)  # Aguarde 30 segundos para observar o resultado
 
-    # Adicionar os cabeçalhos padrão necessários
-    headers.update({
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Origin": "https://servicos.receita.fazenda.gov.br",
-        "Referer": "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp",
-        "Cache-Control": "max-age=0",
-        "Upgrade-Insecure-Requests": "1"
-    })
+        # Fechar o navegador manualmente ou automaticamente
+        # browser.close()
 
-    data = {
-        "idCheckedReCaptcha": "false",
-        "txtCPF": cpf,
-        "txtDataNascimento": data_nascimento,
-        "h-captcha-response": captcha_token,
-        "Enviar": "Consultar"
-    }
-
-    response = requests.post(url, headers=headers, data=data, cookies=cookies_dict)
-    
-    soup = BeautifulSoup(response.text, 'html.parser')
-
-    file_name = f"{cpf}.txt"
-
-    download_dir = os.path.join('consultas')
-    os.makedirs(download_dir, exist_ok=True)
-    file_path = os.path.join(download_dir, file_name)
-
-
-    conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
-
-    with open(file_path, "w", encoding="utf-8") as file:
-        for div in conteudos_esquerda:
-            bold_tags = div.find_all('b')
-            for bold in bold_tags:
-                file.write(bold.get_text(strip=True) + '\n')
-
-
-    print(f"Consulta do CPF {cpf} salva em {file_path}")
-  
-# Looping para processar cada CPF e data de nascimento na planilha
+# Iterar sobre cada linha do DataFrame e processar
 for index, row in df.iterrows():
-    cpf = row['CPF']
-    data_nascimento = row['DATA_FORMATADA']
+    cpf = row['CPF']  
+    data_nascimento = row['DT_NASCIMENTO'].replace("-", "")
     
-    cookies, headers, token_captcha = capturar_cookies_e_token()
-
-    enviar_formulario_com_post(cookies, headers, token_captcha, cpf, data_nascimento)
+    print(f"Processando CPF: {cpf} e Data de Nascimento: {data_nascimento}")
+    processar_cpf_data(cpf, data_nascimento)
