@@ -16,6 +16,7 @@ download_dir = 'consultas'
 os.makedirs(download_dir, exist_ok=True)
 
 def realizar_consulta(cpf, data_nascimento):
+    
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         page = browser.new_page()
@@ -23,7 +24,7 @@ def realizar_consulta(cpf, data_nascimento):
         url = "https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp"
         page.goto(url)
 
-        page.wait_for_selector('input[name="txtCPF"]', timeout=90000)
+        page.wait_for_selector('input[name="txtCPF"]', timeout=10000)
 
         page.fill('input[name="txtCPF"]', str(cpf))
         page.fill('input[name="txtDataNascimento"]', str(data_nascimento))
@@ -32,23 +33,25 @@ def realizar_consulta(cpf, data_nascimento):
         hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
         checkbox = hcaptcha_frame.locator('div[role="checkbox"]')
         checkbox.click()
-        page.wait_for_timeout(600)
-
-        # Capturar o token hCaptcha gerado após a resolução
-        # captcha_token = page.evaluate('document.querySelector("[name=h-captcha-response]").value')
+        print("Clicando no captcha....")
+        
+        # page.wait_for_timeout(600)
+        page.wait_for_function("""
+            () => document.querySelector("[name='h-captcha-response']").value !== ''
+        """, timeout=10000)           
 
         # Submeter o formulário e esperar a navegação
-        with page.expect_navigation(wait_until="networkidle"):
-            page.click('input[name="Enviar"]')
+        page.click('input[name="Enviar"]')
+        page.wait_for_selector('div[class="clConteudoEsquerda"]', timeout=10000)
+        print("Conteudo encontrado")
 
         # Capturar o conteúdo da página de resposta e usar BeautifulSoup para processar
         response_html = page.content()
         soup = BeautifulSoup(response_html, 'html.parser')
+        conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
 
         file_name = f"{cpf}.txt"
         file_path = os.path.join(download_dir, file_name)
-
-        conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
 
         with open(file_path, "w", encoding="utf-8") as file:
             for div in conteudos_esquerda:
@@ -58,6 +61,7 @@ def realizar_consulta(cpf, data_nascimento):
 
         print(f"Consulta para CPF {cpf} concluída. Conteúdo salvo em {file_path}")
 
+        # Fechar o navegador
         browser.close()
 
 # Iterar sobre o DataFrame e realizar consultas para cada CPF
@@ -69,4 +73,3 @@ for index, row in df.iterrows():
     realizar_consulta(cpf, data_nascimento)
 
 print(f"Total de consultas realizadas: {len(df)}")
-    
