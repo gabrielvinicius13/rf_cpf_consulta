@@ -37,15 +37,23 @@ def realizar_consulta(cpf, data_nascimento):
                 checkbox.click()
                 print("Clicando no captcha....")
                 
-                # page.wait_for_timeout(600)
-                page.wait_for_function("""
+                # token_captcha = page.wait_for_timeout(600)
+                token_captcha = page.wait_for_function("""
                     () => document.querySelector("[name='h-captcha-response']").value !== ''
-                """, timeout=10000)           
+                """, timeout=10000)
+                if not token_captcha:
+                    raise ValueError("captcha não sucedido")
+                else:
+                    print("captcha concluido")
 
-                # Submeter o formulário e esperar a navegação
+
+                # Submeter o formulário e esperar o conteudo
                 page.click('input[name="Enviar"]')
-                page.wait_for_selector('div[class="clConteudoEsquerda"]', timeout=10000)
-                print("Conteudo encontrado")
+                conteudo = page.wait_for_selector('div[class="clConteudoEsquerda"]', timeout=10000)
+                if not conteudo:
+                    raise ValueError("Sem acesso ao conteudo")
+                else:
+                    print("Conteudo encontrado")
 
                 # Capturar o conteúdo da página de resposta e usar BeautifulSoup para processar
                 response_html = page.content()
