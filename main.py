@@ -4,7 +4,6 @@ import pandas as pd
 from bs4 import BeautifulSoup
 import os
 
-# Carregar o arquivo CSV
 df = pd.read_csv('nome_caged.csv')
 
 # Função para converter a data de nascimento para o formato DDMMYYYY
@@ -16,13 +15,13 @@ df['DATA_FORMATADA'] = df['DT_NASCIMENTO'].apply(formatar_data_nascimento)
 def capturar_cookies_e_token():
     while True:  # Loop para tentar novamente em caso de erro
         try:
-            # Iniciar o Playwright para resolver o captcha e capturar cookies e headers
+
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=False) 
                 page = browser.new_page()
 
                 page.goto("https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp")
-                page.wait_for_selector("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']", timeout=60000)
+                page.wait_for_selector("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']", timeout=5000)
                 
                 # Acessar o iframe
                 hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
@@ -83,21 +82,30 @@ def enviar_formulario_com_post(cookies, headers, captcha_token, cpf, data_nascim
         "h-captcha-response": captcha_token,
         "Enviar": "Consultar"
     }
+    
     response = requests.post(url, headers=headers, data=data, cookies=cookies_dict)
-    
+
     soup = BeautifulSoup(response.text, 'html.parser')
-    file_name = f"{cpf}.txt"
-    download_dir = os.path.join('consultas')
-    os.makedirs(download_dir, exist_ok=True)
-    file_path = os.path.join(download_dir, file_name)
+
+    consulta = []
+
     conteudos_esquerda = soup.find_all('div', class_='clConteudoEsquerda')
-    
-    with open(file_path, "w", encoding="utf-8") as file:
-        for div in conteudos_esquerda:
-            bold_tags = div.find_all('b')
-            for bold in bold_tags:
-                file.write(bold.get_text(strip=True) + '\n')
-    print(f"Consulta do CPF {cpf} salva em {file_path}")
+    for div in conteudos_esquerda:
+        bold_tags = div.find_all('b')
+        for bold in bold_tags:
+            consulta.append(bold.get_text(strip=True))
+
+    print(consulta)
+
+    # file_name = f"{cpf}.txt"
+    # download_dir = os.path.join('consultas')
+    # os.makedirs(download_dir, exist_ok=True)
+    # file_path = os.path.join(download_dir, file_name)
+    # with open(file_path, "w", encoding="utf-8") as file:
+    #     for item in consulta:
+    #         file.write(item + '\n')
+
+    # print(f"Consulta do CPF {cpf} salva em {file_path}")
   
 # Looping para processar cada CPF e data de nascimento na planilha
 for index, row in df.iterrows():
