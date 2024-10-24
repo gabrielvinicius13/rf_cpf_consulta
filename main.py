@@ -3,11 +3,14 @@ from playwright.sync_api import sync_playwright
 import pandas as pd
 from bs4 import BeautifulSoup
 import os
+
 # Carregar o arquivo CSV
 df = pd.read_csv('nome_caged.csv')
+
 # Função para converter a data de nascimento para o formato DDMMYYYY
 def formatar_data_nascimento(data_iso):
     return pd.to_datetime(data_iso).strftime('%d%m%Y')
+
 df['DATA_FORMATADA'] = df['DT_NASCIMENTO'].apply(formatar_data_nascimento)
 
 def capturar_cookies_e_token():
@@ -17,59 +20,46 @@ def capturar_cookies_e_token():
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=False) 
                 page = browser.new_page()
+
                 page.goto("https://servicos.receita.fazenda.gov.br/Servicos/CPF/ConsultaSituacao/ConsultaPublica.asp")
-                page.wait_for_load_state("networkidle")
-                print("Página carregada com sucesso.")
-                # Aguardar o carregamento da div que contém o iframe do hCaptcha
-                print("Procurando a div que contém o iframe...")
-                div_hcaptcha = page.wait_for_selector("#hcaptcha", timeout=60000)
+                page.wait_for_selector("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']", timeout=60000)
                 
-                if div_hcaptcha:
-                    print("Div hcaptcha encontrada.")
-                else:
-                    print("Div hcaptcha não encontrada.")
-                    continue  # Tentar novamente
-                # Agora procurar o iframe dentro dessa div
-                iframe_element = page.query_selector("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
-                
-                if iframe_element:
-                    print("Iframe encontrado.")
-                else:
-                    print("Iframe não encontrado.")
-                    continue  # Tentar novamente
                 # Acessar o iframe
                 hcaptcha_frame = page.frame_locator("iframe[title='Widget contendo caixa de seleção para desafio de segurança hCaptcha']")
-                print("Procurando o checkbox dentro do iframe...")
+
+                # Clicar no checkbox dentro do iframe
                 checkbox = hcaptcha_frame.locator('div[role="checkbox"]')
-                checkbox.wait_for(timeout=60000)  # Aguarda até o checkbox estar disponível
                 checkbox.click()
-                print("Checkbox clicado com sucesso.")
-                print("Por favor, resolva o captcha manualmente se necessário.")
-                page.wait_for_timeout(20000)  # Tempo para resolver o captcha manualmente
-                # Captura o token do captcha
-                captcha_token = hcaptcha_frame.evaluate('document.querySelector("[name=h-captcha-response]").value')
-                if not captcha_token:
-                    raise ValueError("Token do hCaptcha não encontrado.")
+                print("Clicando no captcha....")
+                token_captcha = page.wait_for_function("""
+                    () => document.querySelector("[name='h-captcha-response']").value !== ''
+                """, timeout=5000)
+                if not token_captcha:
+                    raise ValueError("captcha não sucedido")
                 else:
-                    print(f"Token capturado: {captcha_token}")
+                    print("captcha concluido")
+
+                # Captura o token do captcha
+                captcha_token = page.evaluate('document.querySelector("[name=h-captcha-response]").value')
                 
                 # Capturar os cookies da sessão
                 cookies = page.context.cookies()
+
                 # Capturar os headers necessários
-                headers = hcaptcha_frame.evaluate('''() => {
+                headers = page.evaluate('''() => {
                     return {
                         'User-Agent': navigator.userAgent,
                         'Accept-Language': navigator.language,
                         'Referer': document.referrer
                     }
                 }''')
-                print("Cookies e headers capturados com sucesso.")
-                
+
                 browser.close()
+
                 return cookies, headers, captcha_token
         except Exception as e:
             print(f"Erro ao capturar o token ou cookies: {e}. Tentando novamente...")
-            
+
 def enviar_formulario_com_post(cookies, headers, captcha_token, cpf, data_nascimento):
     if not cookies or not headers or not captcha_token:
         print(f"Consulta para o CPF {cpf} não realizada. Falha na captura do token ou cookies.")
