@@ -3,6 +3,7 @@ from playwright.sync_api import sync_playwright
 import pandas as pd
 from bs4 import BeautifulSoup
 import os
+import sqlite3
 
 df = pd.read_csv('nome_caged.csv')
 
@@ -15,7 +16,6 @@ df['DATA_FORMATADA'] = df['DT_NASCIMENTO'].apply(formatar_data_nascimento)
 def capturar_cookies_e_token():
     while True:  # Loop para tentar novamente em caso de erro
         try:
-
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=False) 
                 page = browser.new_page()
@@ -96,22 +96,46 @@ def enviar_formulario_com_post(cookies, headers, captcha_token, cpf, data_nascim
             consulta.append(bold.get_text(strip=True))
 
     print(consulta)
+    
+    salvar_no_banco_de_dados(consulta)
+    
+    print("Consulta salva no banco de dados com sucesso!")
 
-    # file_name = f"{cpf}.txt"
-    # download_dir = os.path.join('consultas')
-    # os.makedirs(download_dir, exist_ok=True)
-    # file_path = os.path.join(download_dir, file_name)
-    # with open(file_path, "w", encoding="utf-8") as file:
-    #     for item in consulta:
-    #         file.write(item + '\n')
+def salvar_no_banco_de_dados(consulta):
+    """Função para salvar a consulta no banco de dados"""
+    conn = sqlite3.connect('dados_cpf.db')
+    cursor = conn.cursor()
 
-    # print(f"Consulta do CPF {cpf} salva em {file_path}")
-  
+    # Criar a tabela se não existir
+    cursor.execute('''CREATE TABLE IF NOT EXISTS cpf_data (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        CPF TEXT,
+                        Nome TEXT,
+                        Data_Nascimento TEXT,
+                        Situacao_Cadastral TEXT,
+                        Data_Inscricao TEXT,
+                        Digito_Verificador TEXT,
+                        Horario_Emissao TEXT,
+                        Data_Emissao TEXT,
+                        Codigo_Controle TEXT)''')
+
+    # Inserir os dados no banco
+    cursor.execute('''INSERT INTO cpf_data (CPF, Nome, Data_Nascimento, Situacao_Cadastral, Data_Inscricao, Digito_Verificador, Horario_Emissao, Data_Emissao, Codigo_Controle)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', tuple(consulta))
+
+    # Salvar as mudanças
+    conn.commit()
+
+    # Fechar a conexão
+    conn.close()
+
 # Looping para processar cada CPF e data de nascimento na planilha
 for index, row in df.iterrows():
     cpf = row['CPF']
     data_nascimento = row['DATA_FORMATADA']
     
     cookies, headers, token_captcha = capturar_cookies_e_token()
+    
     enviar_formulario_com_post(cookies, headers, token_captcha, cpf, data_nascimento)
+    
 print(f"Total de consultas realizadas: {len(df)}")
