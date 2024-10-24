@@ -18,7 +18,6 @@ os.makedirs(download_dir, exist_ok=True)
 def realizar_consulta(cpf, data_nascimento):
     while True:  # Loop para tentar novamente em caso de erro
         try:
-
             with sync_playwright() as p:
                 browser = p.chromium.launch(headless=False)
                 page = browser.new_page()
@@ -40,7 +39,7 @@ def realizar_consulta(cpf, data_nascimento):
                 # token_captcha = page.wait_for_timeout(600)
                 token_captcha = page.wait_for_function("""
                     () => document.querySelector("[name='h-captcha-response']").value !== ''
-                """, timeout=10000)
+                """, timeout=5000)
                 if not token_captcha:
                     raise ValueError("captcha não sucedido")
                 else:
@@ -49,7 +48,7 @@ def realizar_consulta(cpf, data_nascimento):
 
                 # Submeter o formulário e esperar o conteudo
                 page.click('input[name="Enviar"]')
-                conteudo = page.wait_for_selector('div[class="clConteudoEsquerda"]', timeout=10000)
+                conteudo = page.wait_for_selector('div[class="clConteudoEsquerda"]', timeout=5000)
                 if not conteudo:
                     raise ValueError("Sem acesso ao conteudo")
                 else:
